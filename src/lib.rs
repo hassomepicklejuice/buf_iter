@@ -41,18 +41,20 @@ where
         self.buf.get_mut(n)
     }
     /// Returns a reference to a slice of items in the iterator corresponding to the provided range.
-    pub fn peek_slice<R>(&mut self, index: R) -> Result<&R::Output, &R::Output>
+    pub fn peek_slice<R>(&mut self, index: R) -> Option<&R::Output>
     where
         R: SliceIndex<[Iter::Item]> + RangeBounds<usize>,
     {
-        todo!()
+        self.prepare(&index);
+        self.buf.make_contiguous().get(index)
     }
     /// Returns a mutable reference to a slice of items in the iterator corresponding to the provided range.
-    pub fn peek_slice_mut<R>(&mut self, index: R) -> Result<&mut R::Output, &mut R::Output>
+    pub fn peek_slice_mut<R>(&mut self, index: R) -> Option<&mut R::Output>
     where
         R: SliceIndex<[Iter::Item]> + RangeBounds<usize>,
     {
-        todo!()
+        self.prepare(&index);
+        self.buf.make_contiguous().get_mut(index)
     }
 }
 
@@ -74,6 +76,23 @@ impl<Iter> BufIter<Iter>
 where
     Iter: Iterator,
 {
+    fn prepare<R>(&mut self, range: &R)
+    where
+        R: RangeBounds<usize>,
+    {
+        let extra = match range.end_bound() {
+            std::ops::Bound::Included(ni) => (ni + 1).saturating_sub(self.buf.len()),
+            std::ops::Bound::Excluded(ne) => ne.saturating_sub(self.buf.len()),
+            std::ops::Bound::Unbounded => {
+                self.prepare_all();
+                return;
+            }
+        };
+        self.buf.reserve(extra);
+        for item in (&mut self.iter).take(extra) {
+            self.buf.push_back(item);
+        }
+    }
     fn prepare_n(&mut self, n: usize) -> Result<(), NonZeroUsize> {
         self.buf.reserve(n.saturating_sub(self.buf.len()));
         while self.buf.len() < n {
